@@ -23,7 +23,7 @@ def read_conf_file(conf_file):
     #https_proxy = config.get('general', 'https_proxy')
     url = config.get('general', 'url')
     pages = config.get('general', 'pages')
-    return http_proxy, https_proxy, url, int(pages)
+    return url, int(pages)
 
 
 def get_html(url):
@@ -130,8 +130,7 @@ def get_next_url(url, count):
 
 
 def main():
-    http_proxy, https_proxy, url, pages = read_conf_file(conf_file)
-    #print (http_proxy, https_proxy, url, pages)
+    url, pages = read_conf_file(conf_file)
     print("Page 1 - getting on URL", url)
     html_page = get_html(url)
     print("     ... parsing")
