@@ -119,7 +119,6 @@ def xls_write(project, full_filename):
     wb = load_workbook(full_filename)
     ws = wb.active
     for row in range(2, len(project)):
-        cols = len(project[0])
         # Первой и третьей ячейке присваеваем формат числовой
         ws.cell(row=row + 1, column=1).data_type = 'n'
         ws.cell(row=row + 1, column=1).value = project[row][0]
@@ -205,11 +204,11 @@ def get_table(url, proxy, pages):
         page = []
         if i == 1:
             project.extend(parsing_avito_page(url, proxy))
-            print(i, '-ая страница, по ссылке ', url)
+            print("Получена ", i, '-ая страница, по ссылке ', url)
             continue
         next_url = get_next_url(url, i)
         page = parsing_avito_page(next_url, proxy)
-        print(i, '-ая страница, по ссылке ', next_url)
+        print("Получена ", i, '-ая страница, по ссылке ', next_url)
         if not page:
             print("Страница пустая. Заканчиваем", '\n')
             break
