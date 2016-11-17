@@ -4,15 +4,16 @@ from configparser import ConfigParser
 from lxml import html
 from openpyxl import load_workbook
 import os
+from datetime import datetime
+from shutil import copyfile
 from openpyxl.drawing.image import Image
 
 TITLE = ['ID: ', ' Заголовок:', ' Цена:', ' Город размещения:', ' Дата размещения', ' Ссылка на товар: ',
-         ' Ссылка на изображение:', 'Путь к локальной картинке']
+         ' Ссылка на изображение:', 'Путь к локальной картинке', 'Описание:']
 FPATH = 'storage.xlsx'
 conf_file = 'parser.ini'
 URL = 'https://www.avito.ru/moskva/noutbuki?q=t430'
-PROXY = {'http': 'http://proxy.loc:8080',
-         'https': 'http://proxy.loc:8080'}
+PROXY = {'http': 'http://proxy.loc:8080', 'ftp': 'ftp://proxy.loc:8080', 'https': 'http://proxy.loc:8080'}
 PAGES = 2
 proxy = PROXY
 
@@ -24,40 +25,74 @@ def get_config(conf_file):
     # https_proxy = config.get('general', 'https_proxy')
     url = config.get('general', 'url')
     pages = config.get('general', 'pages')
-    return url, int(pages)
+    backup = config.get('general', 'backup')
+    new_file = config.get('general', 'new')
+    return url, int(pages), int(backup), int(new_file)
 
 
-def parsing_avito_page(url, proxy):
-    rows_table = []
+def backup_existing_file(path):
+    if os.path.exists(path):
+        try:
+            copyfile(path,
+                     path[:-4] + str(datetime.today())[:16].replace(':', '').replace('-', "").replace(" ", '') + path[
+                                                                                                                 -5:])
+            print('Делаю бекап существующего файла', path)
+        except:
+            backup_existing_file(path)
 
-    retry_conn = 5
-    # запрашиваем страницу
+
+def read_xls(full_filename):
+    table = []
+    wb = load_workbook(full_filename)
+    # print(wb)
+    ws = wb.active
+    for row in ws.iter_rows():
+        table_row = []
+        for col in row:
+            table_row.append(col.value)
+        table.append(table_row)
+    print("Файл считан")
+    return table
+
+
+def list_to_dict(project_list):
+    project_dict = {}
+    for row in project_list:
+        project_dict[row[0]] = row[1:]
+    return project_dict
+
+
+def get_html(try_url, proxy, retry=5):
+    while retry:
+        try:
+            print('Получаю страницу -', try_url)
+            response = requests.get(try_url, proxies=proxy)
+            return html.document_fromstring(response.content)
+        except:
+            print('Не удалось получить страницу по ссылке', try_url, 'Пробую еще раз...')
+            retry -= 1
+    print('Попытки исчерпаны')
+    pass
+
+
+def get_next_url(url, count):
     try:
-        response = requests.get(url, proxies=proxy)
-    except Exception:
-        print('\n Ошибка соединения. Пробую снова...')
-        while not retry_conn:
-            retry_conn = - 1
-            print('\n Ошибка соединения. Пробую снова...')
-            parsing_avito_page(url, proxy)
-        print('Соединение не удалось. \n Сохраняю проект.')
-        # save(project, 'storage.csv')
-        print('Проект сохранён.')
-        input('Для выхода нажмите Enter')
-        exit()
+        index_sign = url.index('?')
+    except ValueError:
+        return url + '?p=' + str(count)
+    return (url[:index_sign] + '?p=' + str(count) + '&' + url[(index_sign + 1):])
 
-    # тут я не понял что делаем, но это нужно для дальнейших действий
-    doc = html.document_fromstring(response.content)
+
+def get_row_table(url, proxy):
+    rows_table = []
+    doc = get_html(url, proxy)
+    if not doc: pass  # Если страница не получена то выходим с возвратом None
+
     items = doc.cssselect('div.js-catalog_after-ads .item_table')  # отсекаем всЁ до нужного нам раздела
-
     for item in items:
-
-        id_item = (item.get('id')[1:])  # узнаём ID товара
-        id_item = int(id_item)
-
+        id_item = int(item.get('id')[1:])  # узнаём ID товара
         href = 'https://www.avito.ru' + item.cssselect('div.description h3 a')[0].get('href')  # узнаём ссылку на товар
         title = item.cssselect('div.description h3 a')[0].get('title')  # узнаём заголовок объявления
-
         try:
             src = item.cssselect('div.b-photo a img')[0].get('src')  # узнаём ссылку на картинку для объявления
             if src[:5] != 'http:': src = 'http:' + src
@@ -66,11 +101,9 @@ def parsing_avito_page(url, proxy):
 
         try:
             price = (item.cssselect('div.description .about')[0].text)  # узнаём цену товара
-            price = price.replace('\n', '').replace('руб.', '').replace(' ', '')  # отсекаем лишние символы
-            price = int(price)
+            price = int(price.replace('\n', '').replace('руб.', '').replace(' ', ''))  # отсекаем лишние символы
         except:
-            price = str('0')
-            price = int(price)
+            price = int(str('0'))
 
         try:
             podrazdel = str(item.cssselect('div.description > div.data > p:nth-child(1)')[0].text)
@@ -90,9 +123,9 @@ def parsing_avito_page(url, proxy):
             # date_item = ''
             date_item = str((item.cssselect('.item_table .data .date')[0].text).replace('\n', '').replace(' ', ''))
             # узнаём дату публикации
-            if date_item == None: date_item = 'Не удалось определить'
+            if date_item == None: date_item = ''
         except:
-            date_item = 'Не удалось определить'
+            date_item = ''
 
         rows_table.append([
             id_item
@@ -106,12 +139,83 @@ def parsing_avito_page(url, proxy):
     return rows_table
 
 
-def get_next_url(url, count):
-    try:
-        index_sign = url.index('?')
-    except ValueError:
-        return url + '?p=' + str(count)
-    return (url[:index_sign] + '?p=' + str(count) + '&' + url[(index_sign + 1):])
+def get_table(url, proxy, pages):
+    project = []
+    print('1.', end='')
+    project.extend(get_row_table(url, proxy))
+    # print("Получена 1-ая страница, по ссылке ", url)
+    for i in range(2, pages + 1):
+        next_url = get_next_url(url, i)
+        page = get_row_table(next_url, proxy)
+        # print("Получена ", i, '-ая страница, по ссылке ', next_url)
+        print(i, '.', end='')
+        if not page: print("Страница пустая. Заканчиваем", '\n')
+        project.extend(page)
+    return project
+
+
+# def parsing_description_page(table, proxy):
+#     print('Всего страниц для парсинга -', len(table))
+#     for i in range(1, len(table)):
+#         run = 0
+#         try:
+#             # Проверяю наличие ячейки с описанием
+#             if table[i][8]: continue  # Если ячейка присутствует и не равна 'None' то переходим к следующей строке
+#             # - далее по циклу
+#             run = 1  # выставляем положительный флаг для запуска парсинга
+#         except:
+#             # Если ячейки нет то выполняем код
+#             run = 1  # выставляем положительный флаг для запуска парсинга
+#         if not run: continue  # если парсинг запускать не надо переходим к следующему циклу
+#
+#         url_desc_page = table[i][5]
+#         print(i, 'Получаю описание товара со страницы', url_desc_page)
+#         try:
+#             response = requests.get(url_desc_page, proxies=proxy)
+#         except:
+#             print(i, 'Не удалось получить страницу по ссылке', url_desc_page)
+#             descripion_item = ''
+#             table[i].append(descripion_item)
+#             continue
+#         # получаем HTML документ из ответа на запрос
+#         doc = html.document_fromstring(response.content)
+#         try:
+#             descripion_list = doc.cssselect(
+#                 'body > div.item-view-page-layout.item-view-page-layout_content > div.l-content.clearfix > div.item-view > div.item-view-content > div.item-view-left > div.item-view-main.js-item-view-main > div.item-view-block > div > div > p')
+#             descripion_item = descripion_list[0].text_content()
+#         except:
+#             descripion_item = ''
+#         table[i].append(descripion_item)
+#     return table
+
+
+def parsing_description_page(url_table, proxy):
+    descripion_dict = {}
+    print('Всего страниц для парсинга -', len(url_table))
+    for url in url_table:
+        doc = get_html(url, proxy)
+        try:
+            descripion_item = doc.cssselect(
+                'body > div.item-view-page-layout.item-view-page-layout_content > div.l-content.clearfix > div.item-view > div.item-view-content > div.item-view-left > div.item-view-main.js-item-view-main > div.item-view-block > div > div > p')[
+                0].text_content()
+        except:
+            descripion_item = ''
+        descripion_dict[url] = descripion_item
+    return descripion_dict
+
+
+def get_url_table(new_project):
+    url_table = []
+    for row in new_project:
+        if row == ' Ссылка на изображение:': continue
+        url_table.append(row[5])
+    return url_table
+
+
+def add_description(new_project, description_dict):
+    for i in range(1, len(new_project)):
+        new_project[i].append(description_dict[new_project[i][5]])
+    return new_project
 
 
 def xls_write(project, full_filename):
@@ -140,6 +244,82 @@ def xls_write(project, full_filename):
         ws.cell(row=row + 1, column=8).value = project[row][7]
     wb.save(full_filename)
     print('Файл успешно сохранён!')
+
+
+def dict_to_list(input_dict):
+    dictlist = []
+    for key in input_dict:
+        tmp = []
+        tmp.append(key)
+        for i in input_dict[key]:  tmp.append(i)
+        dictlist.append(tmp)
+    return dictlist
+
+
+def main():
+    path = FPATH
+    url, pages, backup_file, new_file = get_config(conf_file)  # print("Прочитали и спарсили конфиг", conf_file)
+    if backup_file:     backup_existing_file(path)
+    if new_file:
+        os.remove(path)
+        copyfile('storage_template.xlsx', path)
+    old_project = read_xls(path)  # print('Прочитали файл', path)
+    # print(old_project)
+    try:
+        old_project.remove(TITLE)
+    except:
+        qqq = 'Делать ничего не нужно, т.к. заголовка уже нет.'
+    old_table = list_to_dict(old_project)  # print("Преобразовали список в словарь.")
+    new_project = get_table(url, proxy, pages)  # print("Получили все необходимые страницы")
+    new_table = list_to_dict(new_project)  # print("Преобразовали полученный список в словарь")
+    old_table.update(new_table)  # print("Совместили словари, исключив повторения")
+    new_project = dict_to_list(old_table)  # print("Преобразовали словарь обратно в список")
+    new_project.insert(0, TITLE)  # print('Добавили заголовок к списку')
+    url_table = get_url_table(new_project)
+    description_dict = parsing_description_page(url_table, proxy)
+    table = add_description(new_project, description_dict)
+    xls_write(table, path)  # print("Записали изменения в файл", path)
+    input("Для выхода нажмите Enter")
+
+
+if __name__ == '__main__':
+    main()
+
+
+
+
+
+
+def add_loc_img(new_project):
+    for i in range(1, len(new_project)):
+        if not new_project[i][6]:
+            loc_filename = 'img\\No_image.png'
+        elif str(new_project[i][6]).find('//') == -1:
+            new_project[i][6] = None
+            loc_filename = 'img\\No_image.png'
+        else:
+            loc_filename = 'img\\' + new_project[i][6].replace('http://', '_').replace('//', '_').replace('/',
+                                                                                                          '_').replace(
+                ':', '_')
+        # print(loc_filename)
+        try:
+            new_project[i][7] = loc_filename
+        except IndexError:
+            new_project[i].append(loc_filename)
+
+
+def get_loc_img(new_project, proxy):
+    for row in new_project[1:]:
+        url = row[6]
+        filename = row[7]
+        if not (url or filename): continue
+        if url == 'None': continue
+        if os.path.exists(filename): continue
+        if url[:5] != 'http:': url = 'http:' + url
+        print('url', url, 'filename', filename)
+        r = requests.get(url, proxies=proxy)
+        with open(filename, 'wb') as fd:
+            fd.write(r.content)
 
 
 def xls_write_with_image(project, full_filename):
@@ -175,121 +355,3 @@ def xls_write_with_image(project, full_filename):
         ws.add_image(img)
     wb.save(full_filename)
     print('Файл успешно сохранён!')
-
-
-def read_xls(full_filename):
-    table = []
-    wb = load_workbook(full_filename)
-    # print(wb)
-    ws = wb.active
-    for row in ws.iter_rows():
-        table_row = []
-        for col in row:
-            table_row.append(col.value)
-        table.append(table_row)
-    print("Файл считан")
-    return table
-
-
-def list_to_dict(project_list):
-    project_dict = {}
-    for row in project_list:
-        project_dict[row[0]] = row[1:]
-    return project_dict
-
-
-def get_table(url, proxy, pages):
-    project = []
-    for i in range(1, pages + 1):
-        page = []
-        if i == 1:
-            project.extend(parsing_avito_page(url, proxy))
-            print("Получена ", i, '-ая страница, по ссылке ', url)
-            continue
-        next_url = get_next_url(url, i)
-        page = parsing_avito_page(next_url, proxy)
-        print("Получена ", i, '-ая страница, по ссылке ', next_url)
-        if not page:
-            print("Страница пустая. Заканчиваем", '\n')
-            break
-        project.extend(page)
-    return project
-
-
-def dict_to_list(input_dict):
-    dictlist = []
-    for key in input_dict:
-        tmp = []
-        tmp.append(key)
-        for i in input_dict[key]:  tmp.append(i)
-        dictlist.append(tmp)
-    return dictlist
-
-
-def add_loc_img(new_project):
-    for i in range(1, len(new_project)):
-        if not new_project[i][6]:
-            loc_filename = 'img\\No_image.png'
-        elif str(new_project[i][6]).find('//') == -1:
-            new_project[i][6] = None
-            loc_filename = 'img\\No_image.png'
-        else:
-            loc_filename = 'img\\' + new_project[i][6].replace('http://', '_').replace('//', '_').replace('/',
-                                                                                                          '_').replace(
-                ':', '_')
-        # print(loc_filename)
-        try:
-            new_project[i][7] = loc_filename
-        except IndexError:
-            new_project[i].append(loc_filename)
-
-
-def get_loc_img(new_project, proxy):
-    for row in new_project[1:]:
-        url = row[6]
-        filename = row[7]
-        if not (url or filename): continue
-        if url == 'None': continue
-        if os.path.exists(filename): continue
-        if url[:5] != 'http:': url = 'http:' + url
-        print('url', url, 'filename', filename)
-        r = requests.get(url, proxies=proxy)
-        with open(filename, 'wb') as fd:
-            fd.write(r.content)
-
-
-def main():
-    path = FPATH
-    url, pages = get_config(conf_file)  # print("Прочитали и спарсили конфиг", conf_file)
-    old_project = read_xls(path)  # print('Прочитали файл', path)
-    print(old_project)
-    del_item = ['ID: ', ' Заголовок:', ' Цена:', ' Город размещения:', ' Дата размещения', ' Ссылка на товар: ',
-                ' Ссылка на изображение:', 'Путь к локальной картинке']
-    try:
-        old_project.remove(del_item)
-    except:
-        qqq = 'Не знаю что тут сделать'
-    old_table = list_to_dict(old_project)  # print("Преобразовали список в словарь.")
-    print("Получаем страницы по указанной ссылке", url)
-    new_project = get_table(url, proxy, pages)  # print('Получили таблицу которую необходимо добавить в наш файл')
-    # new_project =
-
-    print("Получили все необходимые страницы")
-    new_table = list_to_dict(new_project)  #
-    print("Преобразовали полученный список в словарь")
-    old_table.update(new_table)  #
-    print("Совместили словари, исключив повторения")
-    new_project = dict_to_list(old_table)  #
-    print("Преобразовали словарь обратно в список")
-    new_project.insert(0, TITLE)  #
-    print('Добавили заголовок к списку')
-    add_loc_img(new_project)
-    # get_loc_img(new_project,proxy)
-    xls_write(new_project, path)  #
-    # xls_write_with_image(new_project, path)  #
-    print("Записали изменения в файл", path)
-    input("Для выхода нажмите Enter")
-
-
-if __name__ == '__main__':
-    main()
