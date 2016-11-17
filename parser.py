@@ -9,7 +9,7 @@ from shutil import copyfile
 from openpyxl.drawing.image import Image
 
 TITLE = ['ID: ', ' Заголовок:', ' Цена:', ' Город размещения:', ' Дата размещения', ' Ссылка на товар: ',
-         ' Ссылка на изображение:', 'Путь к локальной картинке', 'Описание:']
+         ' Ссылка на изображение:', 'Описание:']
 FPATH = 'storage.xlsx'
 conf_file = 'parser.ini'
 URL = 'https://www.avito.ru/moskva/noutbuki?q=t430'
@@ -65,8 +65,8 @@ def list_to_dict(project_list):
 def get_html(try_url, proxy, retry=5):
     while retry:
         try:
-            print('Получаю страницу -', try_url)
             response = requests.get(try_url, proxies=proxy)
+            print('Получил страницу -', try_url)
             return html.document_fromstring(response.content)
         except:
             print('Не удалось получить страницу по ссылке', try_url, 'Пробую еще раз...')
@@ -86,7 +86,7 @@ def get_next_url(url, count):
 def get_row_table(url, proxy):
     rows_table = []
     doc = get_html(url, proxy)
-    if not doc: pass  # Если страница не получена то выходим с возвратом None
+    if doc is None: pass  # Если страница не получена то выходим с возвратом None
 
     items = doc.cssselect('div.js-catalog_after-ads .item_table')  # отсекаем всЁ до нужного нам раздела
     for item in items:
@@ -143,72 +143,42 @@ def get_table(url, proxy, pages):
     project = []
     print('1.', end='')
     project.extend(get_row_table(url, proxy))
-    # print("Получена 1-ая страница, по ссылке ", url)
     for i in range(2, pages + 1):
         next_url = get_next_url(url, i)
         page = get_row_table(next_url, proxy)
-        # print("Получена ", i, '-ая страница, по ссылке ', next_url)
         print(i, '.', end='')
         if not page: print("Страница пустая. Заканчиваем", '\n')
         project.extend(page)
     return project
 
 
-# def parsing_description_page(table, proxy):
-#     print('Всего страниц для парсинга -', len(table))
-#     for i in range(1, len(table)):
-#         run = 0
-#         try:
-#             # Проверяю наличие ячейки с описанием
-#             if table[i][8]: continue  # Если ячейка присутствует и не равна 'None' то переходим к следующей строке
-#             # - далее по циклу
-#             run = 1  # выставляем положительный флаг для запуска парсинга
-#         except:
-#             # Если ячейки нет то выполняем код
-#             run = 1  # выставляем положительный флаг для запуска парсинга
-#         if not run: continue  # если парсинг запускать не надо переходим к следующему циклу
-#
-#         url_desc_page = table[i][5]
-#         print(i, 'Получаю описание товара со страницы', url_desc_page)
-#         try:
-#             response = requests.get(url_desc_page, proxies=proxy)
-#         except:
-#             print(i, 'Не удалось получить страницу по ссылке', url_desc_page)
-#             descripion_item = ''
-#             table[i].append(descripion_item)
-#             continue
-#         # получаем HTML документ из ответа на запрос
-#         doc = html.document_fromstring(response.content)
-#         try:
-#             descripion_list = doc.cssselect(
-#                 'body > div.item-view-page-layout.item-view-page-layout_content > div.l-content.clearfix > div.item-view > div.item-view-content > div.item-view-left > div.item-view-main.js-item-view-main > div.item-view-block > div > div > p')
-#             descripion_item = descripion_list[0].text_content()
-#         except:
-#             descripion_item = ''
-#         table[i].append(descripion_item)
-#     return table
-
-
 def parsing_description_page(url_table, proxy):
     descripion_dict = {}
-    print('Всего страниц для парсинга -', len(url_table))
-    for url in url_table:
-        doc = get_html(url, proxy)
+    print('Всего страниц для парсинга описания -', len(url_table))
+    for i in url_table:
+        print(i, '. ', end='')  # Печать цифры перед "Получил страницу ..."
+        doc = get_html(url_table[i], proxy)
         try:
             descripion_item = doc.cssselect(
                 'body > div.item-view-page-layout.item-view-page-layout_content > div.l-content.clearfix > div.item-view > div.item-view-content > div.item-view-left > div.item-view-main.js-item-view-main > div.item-view-block > div > div > p')[
                 0].text_content()
         except:
             descripion_item = ''
-        descripion_dict[url] = descripion_item
+        descripion_dict[url_table[i]] = descripion_item
     return descripion_dict
 
 
 def get_url_table(new_project):
     url_table = []
     for row in new_project:
-        if row == ' Ссылка на изображение:': continue
-        url_table.append(row[5])
+        if row == 'Описание:': continue
+        run = 0
+        try:
+            if not row[7]: run = 1
+        except:
+            run = 1
+        if run: url_table.append(row[5])
+
     return url_table
 
 
