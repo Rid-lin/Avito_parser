@@ -6,14 +6,14 @@ from openpyxl import load_workbook
 import os
 from datetime import datetime
 from shutil import copyfile
-from openpyxl.drawing.image import Image
+
 
 TITLE = ['ID: ', ' Заголовок:', ' Цена:', ' Город размещения:', ' Дата размещения', ' Ссылка на товар: ',
          ' Ссылка на изображение:', 'Описание:']
 FPATH = 'storage.xlsx'
 conf_file = 'parser.ini'
 URL = 'https://www.avito.ru/moskva/noutbuki?q=t430'
-PROXY = {'http': 'http://proxy.loc:8080', 'ftp': 'ftp://proxy.loc:8080', 'https': 'http://proxy.loc:8080'}
+PROXY = {'http': 'http://10.57.254.103:8080', 'ftp': 'ftp://10.57.254.103:8080', 'https': 'http://10.57.254.103:8080'}
 PAGES = 2
 proxy = PROXY
 
@@ -87,8 +87,8 @@ def get_row_table(url, proxy):
     rows_table = []
     doc = get_html(url, proxy)
     if doc is None: pass  # Если страница не получена то выходим с возвратом None
-
     items = doc.cssselect('div.js-catalog_after-ads .item_table')  # отсекаем всЁ до нужного нам раздела
+    i = len(items)
     for item in items:
         id_item = int(item.get('id')[1:])  # узнаём ID товара
         href = 'https://www.avito.ru' + item.cssselect('div.description h3 a')[0].get('href')  # узнаём ссылку на товар
@@ -135,6 +135,7 @@ def get_row_table(url, proxy):
             , date_item
             , href
             , src
+            # , ''
         ])
     return rows_table
 
@@ -152,39 +153,27 @@ def get_table(url, proxy, pages):
     return project
 
 
-def parsing_description_page(url_table, proxy):
-    descripion_dict = {}
-    print('Всего страниц для парсинга описания -', len(url_table))
-    for i in url_table:
-        print(i, '. ', end='')  # Печать цифры перед "Получил страницу ..."
-        doc = get_html(url_table[i], proxy)
+def get_description(url, proxy):
+    try:
+        descripion_item = get_html(url, proxy).cssselect(
+            'body > div.item-view-page-layout.item-view-page-layout_content > div.l-content.clearfix > div.item-view > div.item-view-content > div.item-view-left > div.item-view-main.js-item-view-main > div.item-view-block > div > div > p')[
+            0].text_content()
+    except:
+        descripion_item = ''
+    return descripion_item
+
+
+def add_description(new_project, proxy):
+    for i in range(len(new_project)):
+
         try:
-            descripion_item = doc.cssselect(
-                'body > div.item-view-page-layout.item-view-page-layout_content > div.l-content.clearfix > div.item-view > div.item-view-content > div.item-view-left > div.item-view-main.js-item-view-main > div.item-view-block > div > div > p')[
-                0].text_content()
+            if len(new_project[i][7]) != 0:  continue
         except:
-            descripion_item = ''
-        descripion_dict[url_table[i]] = descripion_item
-    return descripion_dict
-
-
-def get_url_table(new_project):
-    url_table = []
-    for row in new_project:
-        if row == 'Описание:': continue
-        run = 0
-        try:
-            if not row[7]: run = 1
-        except:
-            run = 1
-        if run: url_table.append(row[5])
-
-    return url_table
-
-
-def add_description(new_project, description_dict):
-    for i in range(1, len(new_project)):
-        new_project[i].append(description_dict[new_project[i][5]])
+            # print(new_project[i])
+            descript = str(get_description(new_project[i][5], proxy))
+            new_project[i].append(descript)
+        new_project[i][7] = descript
+        # print(new_project[i])
     return new_project
 
 
@@ -229,10 +218,6 @@ def dict_to_list(input_dict):
 def main():
     path = FPATH
     url, pages, backup_file, new_file = get_config(conf_file)  # print("Прочитали и спарсили конфиг", conf_file)
-    if backup_file:     backup_existing_file(path)
-    if new_file:
-        os.remove(path)
-        copyfile('storage_template.xlsx', path)
     old_project = read_xls(path)  # print('Прочитали файл', path)
     # print(old_project)
     try:
@@ -244,11 +229,16 @@ def main():
     new_table = list_to_dict(new_project)  # print("Преобразовали полученный список в словарь")
     old_table.update(new_table)  # print("Совместили словари, исключив повторения")
     new_project = dict_to_list(old_table)  # print("Преобразовали словарь обратно в список")
+    table = add_description(new_project, proxy)
     new_project.insert(0, TITLE)  # print('Добавили заголовок к списку')
-    url_table = get_url_table(new_project)
-    description_dict = parsing_description_page(url_table, proxy)
-    table = add_description(new_project, description_dict)
+
+    if backup_file:     backup_existing_file(path)
+    if new_file:
+        os.remove(path)
+        copyfile('storage_template.xlsx', path)
+
     xls_write(table, path)  # print("Записали изменения в файл", path)
+
     input("Для выхода нажмите Enter")
 
 
@@ -256,72 +246,3 @@ if __name__ == '__main__':
     main()
 
 
-
-
-
-
-def add_loc_img(new_project):
-    for i in range(1, len(new_project)):
-        if not new_project[i][6]:
-            loc_filename = 'img\\No_image.png'
-        elif str(new_project[i][6]).find('//') == -1:
-            new_project[i][6] = None
-            loc_filename = 'img\\No_image.png'
-        else:
-            loc_filename = 'img\\' + new_project[i][6].replace('http://', '_').replace('//', '_').replace('/',
-                                                                                                          '_').replace(
-                ':', '_')
-        # print(loc_filename)
-        try:
-            new_project[i][7] = loc_filename
-        except IndexError:
-            new_project[i].append(loc_filename)
-
-
-def get_loc_img(new_project, proxy):
-    for row in new_project[1:]:
-        url = row[6]
-        filename = row[7]
-        if not (url or filename): continue
-        if url == 'None': continue
-        if os.path.exists(filename): continue
-        if url[:5] != 'http:': url = 'http:' + url
-        print('url', url, 'filename', filename)
-        r = requests.get(url, proxies=proxy)
-        with open(filename, 'wb') as fd:
-            fd.write(r.content)
-
-
-def xls_write_with_image(project, full_filename):
-    # with open(full_filename, 'wb') as wb:
-    wb = load_workbook(full_filename)
-    ws = wb.active
-    for row in range(2, len(project)):
-        cols = len(project[0])
-        # Первой и третьей ячейке присваеваем формат числовой
-        ws.cell(row=row + 1, column=1).data_type = 'n'
-        ws.cell(row=row + 1, column=1).value = project[row][0]
-        # второй ячейке присваеваем гиперссылку из 6-ой ячейки
-        ws.cell(row=row + 1, column=2).hyperlink = project[row][5]
-        ws.cell(row=row + 1, column=2).value = project[row][1]
-        # Третьей ячейке присваеваем формат числовой
-        ws.cell(row=row + 1, column=3).data_type = 'n'
-        ws.cell(row=row + 1, column=3).value = project[row][2]
-        #
-        ws.cell(row=row + 1, column=4).value = project[row][3]
-        #
-        ws.cell(row=row + 1, column=5).value = project[row][4]
-        #
-        ws.cell(row=row + 1, column=6).value = project[row][5]
-        #
-        ws.cell(row=row + 1, column=7).value = project[row][6]
-        #
-        ws.cell(row=row + 1, column=8).value = project[row][7]
-        try:
-            img = Image(project[row][7])
-            img.anchor(ws.cell(row=row + 1, column=1))
-        except:
-            qqq = '1'
-        ws.add_image(img)
-    wb.save(full_filename)
-    print('Файл успешно сохранён!')
