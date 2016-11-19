@@ -64,13 +64,15 @@ def list_to_dict(project_list):
 
 
 def get_html(try_url, proxy, retry=5):
+    print('Пытаюсь полчить страницу -', try_url, end='')
     while retry:
         try:
             response = requests.get(try_url, proxies=proxy)
-            print('Получил страницу -', try_url)
+            # print('Получил страницу -', try_url, end='')
+            print(' - удачно.')
             return html.document_fromstring(response.content)
         except:
-            print('Не удалось получить страницу по ссылке', try_url, 'Пробую еще раз...')
+            print('Не удачно. \n Пробую еще раз...', try_url, end='')
             retry -= 1
     print('Попытки исчерпаны')
     pass
@@ -89,7 +91,8 @@ def get_row_table(url, proxy):
     doc = get_html(url, proxy)
     if doc is None: pass  # Если страница не получена то выходим с возвратом None
     items = doc.cssselect('div.js-catalog_after-ads .item_table')  # отсекаем всЁ до нужного нам раздела
-    i = len(items)
+    # items = doc.cssselect('#catalog > div.layout-internal.col-12.js-autosuggest__search-list-container > div.l-content.clearfix > div.clearfix > div.catalog.catalog_table > div.catalog-list.clearfix > div.js-catalog_after-ads')[0]
+    i = len(items[0])
     for item in items:
         id_item = int(item.get('id')[1:])  # узнаём ID товара
         href = 'https://www.avito.ru' + item.cssselect('div.description h3 a')[0].get('href')  # узнаём ссылку на товар
@@ -145,11 +148,14 @@ def get_table(url, proxy, pages):
     project = []
     print('1.', end='')
     project.extend(get_row_table(url, proxy))
+
     for i in range(2, pages + 1):
+        print(i, '.', end='')
         next_url = get_next_url(url, i)
         page = get_row_table(next_url, proxy)
-        print(i, '.', end='')
-        if not page: print("Страница пустая. Заканчиваем", '\n')
+        if not page:
+            print("Страница пустая. Заканчиваем", '\n')
+            return project
         project.extend(page)
     return project
 
@@ -157,12 +163,17 @@ def get_table(url, proxy, pages):
 def get_description(url, proxy=PROXY):
     descripion_item = ''
     try:
-        descripion_items = get_html(url, proxy).cssselect(
+        html = get_html(url, proxy)
+        descripion_items = html.cssselect(
             'body > div.item-view-page-layout.item-view-page-layout_content > div.l-content.clearfix > div.item-view > div.item-view-content > div.item-view-left > div.item-view-main.js-item-view-main > div.item-view-block > div > div > p'
         )
-        for item in descripion_items: descripion_item = descripion_item + str(item.text_content())
+        for item in descripion_items: descripion_item = descripion_item + ' ' + str(item.text_content())
+        price = html.cssselect('#price-value > span').text_content()
     except:
         descripion_item = ''
+        price = ''
+    print('- по цене -', price)
+    print(descripion_item)
     return descripion_item
 
 
@@ -199,7 +210,7 @@ def get_t_desc(table_wo_desc):
     for row in table_wo_desc: urls.append(row[5])
 
     # Make the Pool of workers
-    pool = ThreadPool(8)
+    pool = ThreadPool(2)
 
     # Open the urls in their own threads
     # and return the results
