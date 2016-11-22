@@ -74,7 +74,7 @@ def get_html(try_url, proxy, retry=5):
         except:
             print('Не удачно. \n Пробую еще раз...', try_url, end='')
             retry -= 1
-    print('Попытки исчерпаны')
+    print('\n Попытки исчерпаны')
     pass
 
 
@@ -146,11 +146,11 @@ def get_row_table(url, proxy):
 
 def get_table(url, proxy, pages):
     project = []
-    print('1.', end='')
+    print('1. ', end='')
     project.extend(get_row_table(url, proxy))
 
     for i in range(2, pages + 1):
-        print(i, '.', end='')
+        print(i, '. ', sep='', end='')
         next_url = get_next_url(url, i)
         page = get_row_table(next_url, proxy)
         if not page:
@@ -162,17 +162,19 @@ def get_table(url, proxy, pages):
 
 def get_description(url, proxy=PROXY):
     descripion_item = ''
+    price = ''
     try:
-        html = get_html(url, proxy)
-        descripion_items = html.cssselect(
+        doc = get_html(url, proxy)
+        descripion_items = doc.cssselect(
             'body > div.item-view-page-layout.item-view-page-layout_content > div.l-content.clearfix > div.item-view > div.item-view-content > div.item-view-left > div.item-view-main.js-item-view-main > div.item-view-block > div > div > p'
         )
         for item in descripion_items: descripion_item = descripion_item + ' ' + str(item.text_content())
-        price = html.cssselect('#price-value > span').text_content()
+        prices = doc.cssselect('#price-value > span')
+        price = (prices[0].text).replace('\n', '').replace(' ', '')
     except:
         descripion_item = ''
         price = ''
-    print('- по цене -', price)
+    print('Цена - ', price, 'руб.', sep='', end='')
     print(descripion_item)
     return descripion_item
 
