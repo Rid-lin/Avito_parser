@@ -8,23 +8,17 @@ from datetime import datetime
 from shutil import copyfile
 from multiprocessing.dummy import Pool as ThreadPool
 
-
 TITLE = ['ID: ', ' Заголовок:', ' Цена:', ' Город размещения:', ' Дата размещения', ' Ссылка на товар: ',
          ' Ссылка на изображение:', 'Описание:']
-FPATH = '/home/rid-lin/projects/parser/storage.xlsx'
-conf_file = '/home/rid-lin/projects/parser/parser.ini'
+FPATH = 'storage.xlsx'
+conf_file = 'parser.ini'
 URL = 'https://www.avito.ru/moskva/noutbuki?q=t430'
-PROXY = {'http': 'http://10.57.254.103:8080', 'ftp': 'ftp://10.57.254.103:8080', 'https': 'http://10.57.254.103:8080'}
 PAGES = 2
-proxy = ''
 
 
 def get_config(conf_file):
     config = ConfigParser()
-    # config.read(conf_file)
-    with open(conf_file, 'r') as configfile:
-        config.readfp(configfile)
-    # return config.items('general')
+    config.read(conf_file)
     url = config.get('general', 'url')
     pages = config.get('general', 'pages')
     backup = config.get('general', 'backup')
@@ -64,11 +58,11 @@ def list_to_dict(project_list):
     return project_dict
 
 
-def get_html(try_url, proxy, retry=5):
+def get_html(try_url, retry=5):
     print('Пытаюсь полчить страницу -', try_url, end='')
     while retry:
         try:
-            response = requests.get(try_url, proxies=proxy)
+            response = requests.get(try_url)
             # print('Получил страницу -', try_url, end='')
             print(' - удачно.')
             return html.document_fromstring(response.content)
@@ -87,9 +81,9 @@ def get_next_url(url, count):
     return (url[:index_sign] + '?p=' + str(count) + '&' + url[(index_sign + 1):])
 
 
-def get_row_table(url, proxy):
+def get_row_table(url):
     rows_table = []
-    doc = get_html(url, proxy)
+    doc = get_html(url)
     if doc is None: pass  # Если страница не получена то выходим с возвратом None
     items = doc.cssselect('div.js-catalog_after-ads .item_table')  # отсекаем всЁ до нужного нам раздела
     # items = doc.cssselect('#catalog > div.layout-internal.col-12.js-autosuggest__search-list-container > div.l-content.clearfix > div.clearfix > div.catalog.catalog_table > div.catalog-list.clearfix > div.js-catalog_after-ads')[0]
@@ -145,15 +139,15 @@ def get_row_table(url, proxy):
     return rows_table
 
 
-def get_table(url, proxy, pages):
+def get_table(url, pages):
     project = []
     print('1. ', end='')
-    project.extend(get_row_table(url, proxy))
+    project.extend(get_row_table(url))
 
     for i in range(2, pages + 1):
         print(i, '. ', sep='', end='')
         next_url = get_next_url(url, i)
-        page = get_row_table(next_url, proxy)
+        page = get_row_table(next_url)
         if not page:
             print("Страница пустая. Заканчиваем", '\n')
             return project
@@ -161,11 +155,11 @@ def get_table(url, proxy, pages):
     return project
 
 
-def get_description(url, proxy=proxy):
+def get_description(url):
     descripion_item = ''
     price = ''
     try:
-        doc = get_html(url, proxy)
+        doc = get_html(url)
         descripion_items = doc.cssselect(
             'body > div.item-view-page-layout.item-view-page-layout_content > div.l-content.clearfix > div.item-view > div.item-view-content > div.item-view-left > div.item-view-main.js-item-view-main > div.item-view-block > div > div > p'
         )
@@ -196,13 +190,13 @@ def get_table_wo_desc(new_project):
     return table_wo_desc, new_project
 
 
-def add_description(new_project, proxy):
+def add_description(new_project):
     for i in range(len(new_project)):
         print('Осталось', len(new_project) - 1, end='')
         try:
             if len(new_project[i][7]) != 0:  continue
         except:
-            descript = str(get_description(new_project[i][5], proxy))
+            descript = str(get_description(new_project[i][5]))
             new_project[i].append(descript)
         new_project[i][7] = descript
     return new_project
@@ -276,14 +270,14 @@ def main():
     if backup_file:     backup_existing_file(path)
     if new_file:
         os.remove(path)
-        copyfile('/home/rid-lin/projects/parser/storage_template.xlsx', path)
+        copyfile('storage_template.xlsx', path)
     old_data_list = read_xls(path)  # print('Прочитали файл', path)
     try:
         old_data_list.remove(TITLE)
     except:
         qqq = 'Делать ничего не нужно, т.к. заголовка уже нет.'
     old_data_dict = list_to_dict(old_data_list)  # print("Преобразовали список в словарь.")
-    new_data_list = get_table(url, proxy, pages)  # print("Получили все необходимые страницы")
+    new_data_list = get_table(url, pages)  # print("Получили все необходимые страницы")
     new_data_dict = list_to_dict(new_data_list)  # print("Преобразовали полученный список в словарь")
     old_data_dict.update(new_data_dict)  # print("Совместили словари, исключив повторения")
     new_data_list = dict_to_list(old_data_dict)  # print("Преобразовали словарь обратно в список")
@@ -303,5 +297,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
